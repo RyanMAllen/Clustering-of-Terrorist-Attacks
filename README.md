@@ -1,7 +1,7 @@
 # Practicum_I
 Regis University Practicum I
 
-I have in my repository a file called Final.rmd and Final.pdf these are the finished and final works of my practicum project.
+I have in my repository a file called Final.rmd and Final.html these are the finished and final works of my practicum project.
 
 The PDF is the viewer friendly file and the rmd file is for those who wish to see the code behind the scenes. My final project is a compilation of the other rmd files in the repository, cleaned and prepped for the masses. Please look through the different files and keep reading for a brief overview of my project.
 
