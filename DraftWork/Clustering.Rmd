@@ -1,0 +1,209 @@
+---
+title: "Clustering"
+author: "Ryan M. Allen"
+date: "February 16, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, cache = TRUE)
+```
+
+# Clustering
+## K Means Clustering
+
+```{r, cache=TRUE, include=FALSE}
+```{r data_libraries}
+library(tidyverse)
+library(data.table)
+library(scales)
+library(agricolae)
+library(userfriendlyscience)
+library(varhandle)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(rgeos)
+library(rworldmap)  # getMap()
+library(cowplot)
+library(mice)
+library(VIM)
+library(caTools)
+library(corrplot)
+library(missForest)
+library(factoextra)
+library(cluster)
+library(kableExtra)
+library(clValid)
+library(GGally)
+library(NbClust)
+theme_set(theme_light())
+
+data <- read.csv("C:/Users/Ryan Allen/Documents/Downloads/globalterrorismdb_0718dist.csv")
+```
+
+
+### Partitioning data and handling missing values
+```{r, cache=TRUE, message=FALSE}
+partitioning <- sample.split(data, SplitRatio = .8)
+trainData <- subset(data, partitioning == TRUE)
+testData <- subset(data, partitioning == FALSE)
+
+# Selecting only numeric values
+numericTerrorism <- trainData %>%
+    select_if(is.numeric) %>% 
+    select(which(colMeans(is.na(.)) <.25))
+
+summary(numericTerrorism)
+    
+# Imputing Strategies
+TDMice <- md.pattern(numericTerrorism)
+
+mice_plot <- aggr(numericTerrorism, col = c('navyblue', 'yellow'),
+                  numers = TRUE, sortVars = TRUE,
+                  labels = names(numericTerrorism), cex.axis = .7,
+                  gap = 3, ylab = c("Missing Data", "Pattern"))
+
+# imputed_MICE <- mice(numericTerrorism, m = 3, maxit = 10, method = 'cart',
+                    # seed = 500)
+# Creating variables of the three imputed datasets created
+# imputed1_MICE <- complete(imputed_MICE,1)
+# imputed2_MICE <- complete(imputed_MICE,2)
+# imputed3_MICE <- complete(imputed_MICE,3)
+
+# Saving my imputed data as csv files in case I need them later
+# Imputation process was time intensive 
+# write.csv(imputed1_MICE, "C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Data/imputed1.csv")
+# write.csv(imputed2_MICE, "C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Data/imputed2.csv")
+# write.csv(imputed3_MICE, "C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Data/imputed3.csv")
+
+# Reading the data back in
+imputed1 <- read.csv("C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Data/Data/imputed1.csv")
+imputed2 <- read.csv("C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Data/Data/imputed2.csv")
+imputed3 <- read.csv("C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Data/Data/imputed3.csv")
+
+# Removing the event ID variable
+imputed1 <- imputed1 %>% select(-eventid, -X)
+imputed2 <- imputed2 %>% select(-eventid, -X)
+imputed3 <- imputed3 %>% select(-eventid, -X)
+
+# PCA
+pca1 <- prcomp(imputed1, scale = TRUE)
+pca2 <- prcomp(imputed2, scale = TRUE)
+pca3 <- prcomp(imputed3, scale = TRUE)
+
+# Standard Deviation
+std_dev1 <- pca1$sdev
+std_dev2 <- pca1$sdev
+std_dev3 <- pca3$sdev
+
+# Variance of each principal component
+var1 <- std_dev1^2
+var2 <- std_dev2^2
+var3 <- std_dev3^2
+
+prop1_varex <- var1/sum(var1)
+prop2_varex <- var2/sum(var2)
+prop3_varex <- var3/sum(var3)
+
+#scree plot
+plot(prop1_varex, xlab = "Principal Component",
+       ylab = "Proportion of Variance Explained",
+       type = "b")
+#cumulative scree plot
+plot(cumsum(prop1_varex), xlab = "Principal Component",
+       ylab = "Cumulative Proportion of Variance Explained",
+       type = "b")
+
+#scree plot
+plot(prop2_varex, xlab = "Principal Component",
+       ylab = "Proportion of Variance Explained",
+       type = "b")
+#cumulative scree plot
+plot(cumsum(prop2_varex), xlab = "Principal Component",
+       ylab = "Cumulative Proportion of Variance Explained",
+       type = "b")
+
+#scree plot
+plot(prop3_varex, xlab = "Principal Component",
+       ylab = "Proportion of Variance Explained",
+       type = "b")
+#cumulative scree plot
+plot(cumsum(prop3_varex), xlab = "Principal Component",
+       ylab = "Cumulative Proportion of Variance Explained",
+       type = "b")
+
+# Based on the Scree plot, we are interested in the first 28 columns
+imputed1 <- imputed1 %>% filter(longitude > -180)
+trainData <- imputed1[,1:28]
+```
+
+### Using Gap Statistic and NbClust to determine best number of clusters.
+```{r, cache=TRUE, message=FALSE}
+sampleTrain <- trainData %>% sample_n(., 20000, replace = TRUE)
+sampleTrainNum <- trainData %>% sample_n(., 2000, replace = TRUE)
+scaledTrain <- scale(sampleTrain)
+scaledTrainNum <- scale(sampleTrainNum)
+
+nbc <- NbClust(data = scaledTrain, min.nc = 3, max.nc= 8, method = "kmeans")
+table(nbc$Best.n[1,])
+# compute gap statistic
+set.seed(123)
+gap_stat <- clusGap(scaledTrainNum, kmeans, nstart = 25,
+                    K.max = 10, B = 30)
+
+fviz_gap_stat(gap_stat)
+
+library(vegan)
+
+model <- cascadeKM(scaledTrainNum, 1, 10, iter = 50)
+plot(model, sortg = TRUE)
+model$results[2,]
+```
+
+## Kmeans Clustering
+```{r, cache=TRUE, message=FALSE}
+km.out=kmeans(scaledTrain, 8, nstart = 20)
+
+
+head(km.out$cluster)
+fviz_cluster(km.out, data = scaledTrain, geom = "point", pointsize = .5)
+
+# Kmeans groups in dataset
+kmeansData <- sampleTrain
+
+kmeansData$Cluster <- km.out$cluster
+
+# Creating a new grouped dataset (hclustData and kmeansData) for data analysis and training purposes
+write.csv(kmeansData, "C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Data/Data/kmeansData.csv")
+```
+
+## Hierarchical Clustering
+```{r, cache=TRUE, message=FALSE}
+trainData <- imputed1[,1:28]
+sampleTrain <- trainData %>% sample_n(., 20000, replace = TRUE)
+dist <- dist(sampleTrain, method = "euclidean")
+
+hcl <- hclust(dist, method = "complete")
+plot(hcl, cex = .6, hang = -1)
+dnd <- as.dendrogram(hcl)
+plot(dnd, leaflab = 'none')
+
+dnd_cut <- cutree(hcl, 8)
+sampleTrain$group <- dnd_cut
+
+# Since it is categorical data I am rounding all categorical data points to the nearest int
+rounded <- sampleTrain %>% select(extended, country, region, specificity,
+                       vicinity, crit1, crit2, crit3, doubtterr,
+                       multiple, success, suicide, attacktype1,
+                       targtype1,targsubtype1, natlty1, guncertain1,
+                       individual, weaptype1, weapsubtype1, nkill,
+                       nwound, property) %>% round()
+
+hclustData <- rounded
+hclustData$Cluster <- dnd_cut
+
+# Creating a new grouped dataset (hclustData and kmeansData) for data analysis and training purposes
+write.csv(hclustData, "C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Data/Data/hclustData.csv")
+```
+
