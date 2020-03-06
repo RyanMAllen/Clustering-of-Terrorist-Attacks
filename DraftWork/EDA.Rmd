@@ -1,0 +1,550 @@
+---
+title: "EDA"
+author: "Ryan M. Allen"
+date: "February 20, 2020"
+output: pdf_document
+---
+```{r setup, include=FALSE, cache=TRUE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r data_libraries, cache=TRUE, message=FALSE, include=FALSE}
+library(tidyverse)
+library(data.table)
+library(scales)
+library(agricolae)
+library(userfriendlyscience)
+library(varhandle)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(rgeos)
+library(rworldmap)  # getMap()
+library(cowplot)
+library(mice)
+library(VIM)
+library(caTools)
+library(corrplot)
+library(missForest)
+library(factoextra)
+library(cluster)
+library(kableExtra)
+library(clValid)
+library(GGally)
+library(NbClust)
+theme_set(theme_light())
+
+data <- read.csv("C:/Users/Ryan Allen/Documents/Downloads/globalterrorismdb_0718dist.csv")
+
+# dim(data)
+# str(data)
+
+# data %>% 
+#     select(country_txt, weaptype1_txt) %>% 
+#     filter(country_txt == 'United States') %>% 
+#     add_count(country_txt, weaptype1_txt) %>%
+#     unique() %>% 
+#       mutate(weaptype1_txt = fct_reorder(weaptype1_txt, n, desc)) %>% 
+#    ggplot(aes(x = weaptype1_txt, y = n)) +
+#                    geom_bar(stat = "identity")
+
+
+```
+
+```{r, cache=TRUE}
+# top 10 countries for terrorist attacks to occur
+toptenC <- data %>% select(country_txt) %>% 
+    add_count(country_txt) %>% 
+    unique() %>% 
+    arrange(desc(n)) %>% 
+    top_n(n, n=10)
+
+# Top 10 Weapon Types
+toptenW <- data %>% select(weaptype1_txt) %>% 
+    add_count(weaptype1_txt) %>% 
+    unique() %>% 
+    arrange(desc(n)) %>% 
+    top_n(n, n=10)
+# Top 10 weapon and country combo
+toptenCombo <- data %>% 
+    select(country_txt, weaptype1_txt) %>% 
+    add_count(country_txt,weaptype1_txt) %>%  
+    rename(Number_Attacks = n) %>% 
+    unique() %>% 
+    arrange(desc(Number_Attacks)) %>% 
+    top_n(Number_Attacks, n =10)
+
+```
+
+What Weapons used and Countries attacked combinations were most prevalent?
+```{r, cache=TRUE}
+#Top 10 Combinations of Country 
+toptenCombo %>% 
+    unite(Country_Weapon, country_txt,weaptype1_txt) %>% 
+    mutate(Country_Weapon = fct_reorder(Country_Weapon, Number_Attacks)) %>% 
+    ggplot(aes(x = Country_Weapon, y = Number_Attacks)) +
+                   geom_bar(stat = "identity") +
+    coord_flip() +
+      labs(title = "What are the top 10 combos of Country & Weapon Type?",
+       subtitle = "Top 10 countries by number of attacks in them.",
+       x= "",
+       y = "Number of Occurrences")
+```
+
+```{r, cache=TRUE}
+#Distributions of casualties by country
+
+data %>%
+    select(country_txt, weaptype1_txt, nkill) %>% 
+    group_by(country_txt) %>% 
+    filter(country_txt %in% toptenC$country_txt) %>% 
+    drop_na() %>% 
+    arrange(desc(nkill)) %>% 
+    mutate(nkill = as.numeric(nkill)) %>% 
+    ggplot(aes(x= country_txt, y = nkill)) +
+    geom_boxplot(outlier.alpha = .5)+
+    ylim(-1, 100) + 
+    coord_flip() +
+     labs(title = "How do the distributions of casualties compare?",
+       subtitle = "Top 10 countries by number of attacks in them.",
+       x= "",
+       y = "Number of Casualties")
+
+
+# Distributions by Weapon Type
+data %>%
+    select(country_txt, weaptype1_txt, nkill) %>% 
+    filter(weaptype1_txt %in% toptenW$weaptype1_txt) %>% 
+    drop_na() %>% 
+    arrange(desc(nkill)) %>% 
+    mutate(nkill - as.numeric(nkill)) %>% 
+    ggplot(aes(x= weaptype1_txt, y = nkill)) +
+    geom_boxplot(outlier.alpha = .5)+
+    ylim(-1, 100) + 
+    coord_flip() +
+     labs(title = "How do the distributions of casualties compare?",
+       subtitle = "Top 10 Weapons by number of times used.",
+       x= "",
+       y = "Number of Casualties")
+
+
+# Distributions by Attack Type
+data %>%
+    select(country_txt, attacktype1_txt, nkill) %>% 
+    filter(weaptype1_txt %in% toptenW$weaptype1_txt) %>% 
+    drop_na() %>% 
+    arrange(desc(nkill)) %>% 
+    mutate(nkill - as.numeric(nkill)) %>% 
+    ggplot(aes(x= weaptype1_txt, y = nkill)) +
+    geom_boxplot(outlier.alpha = .5)+
+    ylim(-1, 100) + 
+    coord_flip() +
+     labs(title = "How do the distributions of casualties compare?",
+       subtitle = "Top 10 Weapons by number of times used.",
+       x= "",
+       y = "Number of Casualties")
+```
+
+### Which criteria was most popular in which regions? Weapon types? Attack types?
+```{r}
+# By regioin which criteria was most popular?
+# Crit 1 =  POLITICAL, ECONOMIC, RELIGIOUS, OR SOCIAL GOAL 
+# Crit 2 = INTENTION TO COERCE, INTIMIDATE OR PUBLICIZE TO LARGER AUDIENCE(S)
+# Crit 3 = OUTSIDE INTERNATIONAL HUMANITARIAN LAW 
+# Percent calculated across Region.
+data %>% 
+    select(region_txt, crit1, crit2, crit3) %>%
+    group_by(region_txt) %>%
+    mutate(c1count = sum(crit1)) %>% 
+    mutate(c2count= sum(crit2)) %>% 
+    mutate(c3count = sum(crit3)) %>% 
+    select(region_txt, c1count, c2count, c3count) %>% 
+    group_by(region_txt) %>% 
+    mutate(regiontotal = c1count + c2count + c3count) %>% 
+    mutate(c1percent = c1count/regiontotal) %>% 
+    mutate(c2percent = c2count/regiontotal) %>% 
+    mutate(c3percent = c3count/regiontotal) %>% 
+    select(region_txt, c1percent, c2percent, c3percent, regiontotal) %>% 
+    unique() %>% 
+    arrange(region_txt)
+
+
+# Which weapontype was most often used in which criteria?
+# Percent calculated across weapontype.
+data %>% 
+    select(weaptype1_txt, crit1, crit2, crit3) %>%
+    group_by(weaptype1_txt) %>%
+    mutate(c1count = sum(crit1)) %>% 
+    mutate(c2count= sum(crit2)) %>% 
+    mutate(c3count = sum(crit3)) %>% 
+    select(weaptype1_txt, c1count, c2count, c3count) %>% 
+    group_by(weaptype1_txt) %>% 
+    mutate(weapontotal = c1count + c2count + c3count) %>% 
+    mutate(c1percent = c1count/weapontotal) %>% 
+    mutate(c2percent = c2count/weapontotal) %>% 
+    mutate(c3percent = c3count/weapontotal) %>% 
+    select(weaptype1_txt, c1percent, c2percent, c3percent, weapontotal) %>% 
+    unique() %>% 
+    arrange(weaptype1_txt)
+
+# Which attack types are associated with which criteria?
+# Percent calculated across attacktype.
+data %>% 
+    select(attacktype1_txt, crit1, crit2, crit3) %>%
+    group_by(attacktype1_txt) %>%
+    mutate(c1count = sum(crit1)) %>% 
+    mutate(c2count= sum(crit2)) %>% 
+    mutate(c3count = sum(crit3)) %>% 
+    select(attacktype1_txt, c1count, c2count, c3count) %>% 
+    group_by(attacktype1_txt) %>% 
+    mutate(attacktotal = c1count + c2count + c3count) %>% 
+    mutate(c1percent = c1count/attacktotal) %>% 
+    mutate(c2percent = c2count/attacktotal) %>% 
+    mutate(c3percent = c3count/attacktotal) %>% 
+    select(attacktype1_txt, c1percent, c2percent, c3percent, attacktotal) %>% 
+    unique() %>% 
+    arrange(attacktype1_txt)
+
+
+```
+
+
+```{r, cache=TRUE}
+mapping <- data %>% select(latitude,longitude, suicide) %>% 
+    drop_na() %>% 
+    filter(longitude> -180)
+
+world <- getMap(resolution = "low")
+
+ggplot() +
+    geom_polygon(data = world, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = mapping, aes(x = longitude, y = latitude, col = suicide, alpha = .02))
+
+# ggplot() +
+#     geom_polygon(data = world, aes(x = long, y = lat, group = group),
+#                  fill = NA, colour = "black") +
+#     geom_density2d(data = mapping, aes(x = longitude, y = latitude, col = suicide))
+
+par(mfrow=c(2,4))
+
+#North American Regional Map
+regionsNA <- data %>% select(country_txt, region_txt, latitude, longitude, suicide) %>% filter (region_txt == 'North America') %>% filter(longitude <0)
+NARegion <- unique(regionsNA$country_txt)
+world_NA <- world[world@data$ADMIN %in% NARegion, ]
+
+NorthAmerica <- ggplot() +
+    geom_polygon(data = world_NA, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsNA, 
+               aes(x = longitude, y = latitude, col = factor(suicide), 
+                   alpha = .02), show.legend = F) + 
+    theme_classic() +  # Remove ugly grey background
+labs(title = "North American Region Terrorist Attack Locations",
+       subtitle = "<1% of attacks are suicides",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Suicide Attack")) +
+    scale_alpha(guide = 'none') 
+
+# Central America Map
+regionsCAC <- data %>% select(country_txt, region_txt, latitude, longitude, suicide) %>% 
+    filter(region_txt == 'Central America & Caribbean') %>% filter(longitude>-125)
+world_CAC <- world[world@data$ADMIN %in% unique(regionsCAC$country_txt), ]
+
+CentralAmerica <- ggplot() +
+    geom_polygon(data = world_CAC, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsCAC, 
+               aes(x = longitude, y = latitude, col = factor(suicide), 
+                   alpha = .02), show.legend = F) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "Central America Terrorist Attack Locations",
+       subtitle = "<1% of attacks are suicides",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Suicide Attack")) +
+    scale_alpha(guide = 'none') 
+
+# Asia
+regionsAsia <- data %>% select(country_txt, region_txt, latitude, longitude, suicide) %>% 
+    filter(region_txt %in% c('Southeast Asia', 'East Asia', 'Central Asia', 'South Asia')) %>% filter(longitude>0)
+world_Asia <- world[world@data$ADMIN %in% unique(regionsAsia$country_txt), ]
+
+Asia <- ggplot() +
+    geom_polygon(data = world_Asia, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsAsia, 
+               aes(x = longitude, y = latitude, col = factor(suicide), 
+                   alpha = .02), show.legend = F) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "Asia Terrorist Attack Locations",
+       subtitle = "3.4% of attacks are suicides",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Suicide Attack")) +
+    scale_alpha(guide = 'none')
+
+
+# Middle East
+regionsME <- data %>% select(country_txt, region_txt, latitude, longitude, suicide) %>% 
+    filter(region_txt == 'Middle East & North Africa') %>% filter(longitude < 70)
+world_ME <- world[world@data$ADMIN %in% unique(regionsME$country_txt), ]
+
+MiddleEast <- ggplot() +
+    geom_polygon(data = world_ME, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsME, 
+               aes(x = longitude, y = latitude, col = factor(suicide), 
+                   alpha = .02), show.legend = F) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "Middle East Terrorist Attack Locations",
+       subtitle = "7.6% of attacks are suicides",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Suicide Attack")) +
+    scale_alpha(guide = 'none')
+
+# Europe
+regionsEU <- data %>% select(country_txt, region_txt, latitude, longitude, suicide) %>% 
+    filter(region_txt %in% c('Eastern Europe', 'Western Europe'))
+world_EU <- world[world@data$ADMIN %in% unique(regionsEU$country_txt), ]
+
+Europe <- ggplot() +
+    geom_polygon(data = world_EU, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsEU, 
+               aes(x = longitude, y = latitude, col = factor(suicide), 
+                   alpha = .02), show.legend = F) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "Europe Terrorist Attack Locations",
+       subtitle = "<1% of attacks are suicides",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Suicide Attack")) +
+    scale_alpha(guide = 'none') +
+    xlim(-50, 160) +
+    ylim(20, 80)
+
+# Sub-Saharan Africa
+regionsSA <- data %>% select(country_txt, region_txt, latitude, longitude, suicide) %>% 
+    filter(region_txt == 'Sub-Saharan Africa')
+world_SA <- world[world@data$ADMIN %in% unique(regionsSA$country_txt), ]
+
+SubSaharahAfrica <- ggplot() +
+    geom_polygon(data = world_SA, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsSA, 
+               aes(x = longitude, y = latitude, col = factor(suicide), 
+                   alpha = .02), show.legend = F) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "Sub-Saharan Africa Terrorist Attack Locations",
+       subtitle = "4.2% of attacks are suicides",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Suicide Attack")) +
+    scale_alpha(guide = 'none') +
+    ylim(-38, 25)
+
+# South America
+regionsSAm <- data %>% select(country_txt, region_txt, latitude, longitude, suicide, weaptype1, attacktype1) %>% 
+    filter(region_txt == 'South America')
+world_SAm <- world[world@data$ADMIN %in% unique(regionsSAm$country_txt), ]
+
+SouthAmerica <- ggplot() +
+    geom_polygon(data = world_SAm, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsSAm, 
+               aes(x = longitude, y = latitude, col = factor(suicide), 
+                   alpha = .02), show.legend = F) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "South America Terrorist Attack Locations",
+       subtitle = "<1% of attacks are suicides",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Suicide Attack")) +
+    scale_alpha(guide = 'none') 
+
+# Australia and Oceania
+regionsAus <- data %>% select(country_txt, region_txt, latitude, longitude, suicide) %>% 
+    filter(region_txt == 'Australasia & Oceania')
+world_Aus <- world[world@data$ADMIN %in% unique(regionsAus$country_txt), ]
+
+Australia <- ggplot() +
+    geom_polygon(data = world_Aus, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsAus, 
+               aes(x = longitude, y = latitude, col = factor(suicide), 
+                   alpha = .02), show.legend = F) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "Austrialia and Oceania Terrorist Attack Locations",
+       subtitle = "<1% of attacks are suicides",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Suicide Attack")) +
+    scale_alpha(guide = 'none') +
+    xlim(110, 180)
+
+plot_grid(
+NorthAmerica,
+Europe,
+Asia,
+Australia,
+labels = "", nrow =2, ncol = 1)
+```
+
+```{r, cache=TRUE}
+# Deadliest Weapons
+data %>% 
+    select(weaptype1_txt, nkill) %>% 
+    drop_na() %>% 
+    group_by(weaptype1_txt) %>% 
+    summarise(Total= sum(nkill)) %>% 
+    arrange(desc(Total))
+```
+
+# Comparing Means by Region and by Weapon Type
+```{r}
+imputed1 <- read.csv("C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Data/Data/imputed1.csv")
+numericTerrorism <- round(imputed1)
+    
+as.data.frame(numericTerrorism) %>% mutate(Region = numericTerrorism$region) %>%  group_by(Region) %>% summarise_all("mean") %>% kable() %>% kable_styling()
+
+as.data.frame(numericTerrorism) %>% mutate(WeaponType = numericTerrorism$weaptype1) %>%  group_by(WeaponType) %>% summarise_all("mean") %>% kable() %>% kable_styling()
+
+```
+
+
+## Top weapon type by region
+```{r, message=FALSE}
+EU <- data %>% select(region_txt, weaptype1_txt) %>% 
+    mutate(region = "Europe") %>% 
+    filter(weaptype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('Western Europe','Eastern Europe')) %>% 
+    add_count(weaptype1_txt) %>% 
+    select(region, weaptype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+Africa <- data %>% select(region_txt, weaptype1_txt) %>% 
+    mutate(region = "Africa") %>% 
+    filter(weaptype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('Sub-Saharan Africa','Middle East & North Africa')) %>% 
+    add_count(weaptype1_txt) %>% 
+    select(region, weaptype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+Asia <- data %>% select(region_txt, weaptype1_txt) %>% 
+    mutate(region = "Asia") %>% 
+    filter(weaptype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('East Asia','Southeast Asia', 'South Asia', 'Central Aisa')) %>% 
+    add_count(weaptype1_txt) %>% 
+    select(region, weaptype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+NAmerica <-data %>% select(region_txt, weaptype1_txt) %>% 
+    mutate(region = "NorthAmerica") %>% 
+    filter(weaptype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('North America')) %>% 
+    add_count(weaptype1_txt) %>% 
+    select(region, weaptype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+SCAmerica <- data %>% select(region_txt, weaptype1_txt) %>% 
+    mutate(region = "SC_America") %>% 
+    filter(weaptype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('South America','Central America & Caribbean')) %>% 
+    add_count(weaptype1_txt) %>% 
+    select(region, weaptype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+Australasia <- data %>% select(region_txt, weaptype1_txt) %>% 
+    mutate(region = "Australasia") %>% 
+    filter(weaptype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('Australasia & Oceania')) %>% 
+    add_count(weaptype1_txt) %>% 
+    select(region, weaptype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+topweapons <- rbind(EU,Africa, Asia, NAmerica, SCAmerica, Australasia)
+
+topweapons %>% ggplot(aes(x = region, y = rank, col = weaptype1_txt, group = weaptype1_txt)) +
+    geom_point() + geom_line() + labs(col="Weapon Type") + labs(title = "The Top ranked weapon types for each region.", subtitle = "Bombing/explosions are the most frequent attack types across all regions.\n\n", x = "")
+
+topweapons %>% filter(rank == 1) 
+
+EU <- data %>% select(region_txt, attacktype1_txt) %>% 
+    mutate(region = "Europe") %>% 
+    filter(attacktype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('Western Europe','Eastern Europe')) %>% 
+    add_count(attacktype1_txt) %>% 
+    select(region, attacktype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+Africa <- data %>% select(region_txt, attacktype1_txt) %>% 
+    mutate(region = "Africa") %>% 
+    filter(attacktype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('Sub-Saharan Africa','Middle East & North Africa')) %>% 
+    add_count(attacktype1_txt) %>% 
+    select(region, attacktype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+Asia <- data %>% select(region_txt, attacktype1_txt) %>% 
+    mutate(region = "Asia") %>% 
+    filter(attacktype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('East Asia','Southeast Asia', 'South Asia', 'Central Aisa')) %>% 
+    add_count(attacktype1_txt) %>% 
+    select(region, attacktype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+NAmerica <-data %>% select(region_txt, attacktype1_txt) %>% 
+    mutate(region = "NorthAmerica") %>% 
+    filter(attacktype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('North America')) %>% 
+    add_count(attacktype1_txt) %>% 
+    select(region, attacktype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+SCAmerica <- data %>% select(region_txt, attacktype1_txt) %>% 
+    mutate(region = "SCAmerica") %>% 
+    filter(attacktype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('South America','Central America & Caribbean')) %>% 
+    add_count(attacktype1_txt) %>% 
+    select(region, attacktype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+Australasia <- data %>% select(region_txt, attacktype1_txt) %>% 
+    mutate(region = "Australasia") %>% 
+    filter(attacktype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('Australasia & Oceania')) %>% 
+    add_count(attacktype1_txt) %>% 
+    select(region, attacktype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+topattacks <- rbind(EU,Africa, Asia, NAmerica, SCAmerica, Australasia)
+
+topattacks %>% ggplot(aes(x = region, y = rank, col = attacktype1_txt, group = attacktype1_txt)) +
+    geom_point()+ theme(axis.text.x = element_text(angle = 90)) + geom_line() + labs(col="Attack Type") + labs(title = "The Top ranked attacks for each region.", subtitle = "Bombing/explosions are the most frequent attack types across all regions.\n\n")
+
+```
+
