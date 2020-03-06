@@ -1,0 +1,1382 @@
+---
+title: "A Clustering and Analysis of Terrorist Attacks"
+author: "Ryan M. Allen"
+date: "February 23, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r data_libraries, include=FALSE}
+set.seed(18)
+library(tidyverse)
+library(data.table)
+library(scales)
+library(agricolae)
+library(userfriendlyscience)
+library(varhandle)
+library(sf)
+library(rnaturalearth)
+library(rnaturalearthdata)
+library(rgeos)
+library(rworldmap)  # getMap()
+library(cowplot)
+library(mice)
+library(VIM)
+library(caTools)
+library(corrplot)
+library(missForest)
+library(factoextra)
+library(cluster)
+library(kableExtra)
+library(clValid)
+library(GGally)
+library(NbClust)
+library(viridis)
+theme_set(theme_light())
+
+data <- read.csv("C:/Users/Ryan Allen/Documents/Downloads/globalterrorismdb_0718dist.csv")
+```
+
+# Regis Univerisity Practicum_1
+## by Ryan Allen
+
+This project is analyzing the Globabl Terrorism Dataset found on Kaggle (https://www.kaggle.com/START-UMD/gtd).
+
+My project will consist of a the following steps:
+  - Initial exploratory analysis
+  - Imputation of missing values
+  - K means clustering
+  - Hierarchical clustering
+  - Exploratory analysis of the found clusters
+  
+ The driving question behind this analysis is what terrorist attacks are similar? Is is the weapon type, the type of attack, perhaps it is the group that carries out the attack or the group that is attacked. Maybe geographically there is something similar in these attacks. Perhaps regionally, certain weapons are favored for attacks, or maybe certain regions are deadlier than other regions. These are the types of questions that I am hoping to answer with this project. I will use the two clustering methods to create similar clusters of these attacks and wthen will analyze the groups.
+
+### About the data
+This data has been collected since 1970 until 2017. The dataset is maintained by the Study of Terrorism and Responses to Terrorism (START) at the University of Maryland.The dataset has 135 columns with over 180,00 values. Most of the data is categorical, one data column is a numeric field that relates to a corresponding text field. For the exploratory data analysis, I kept only the numeric field, but will rejoin the text fields when it comes time to do the conclusions. 
+
+Below are two plots from the MICE package that show the number of missing values in each column. The first plot is the original dataset, and the second is after I have filtered out any columns that have less than 25% missing values or NAs. Part of the dataset is that some columns are contingent on other columns, so if there is a 0 in one column, then the values in the next column will be blank. Doubterr is one of those columns.
+
+MICE plot of all data
+```{r , echo=FALSE, fig.cap="", out.width = '100%'}
+knitr::include_graphics("C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Images/miceplot_alldata.png")
+```
+
+MICE plot of data with less than 25% missing values that was kept.
+```{r , echo=FALSE, fig.cap="", out.width = '100%'}
+knitr::include_graphics("C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Images/MicePlot_Lessthan25.png")
+```
+
+## Exploratory Data Analysis
+For exploratory analysis I focused mainly on weapontype, attacktype, crit1, crit2, crit3, geographic information (lat and long mainly), suicide and nkill. These values to me were the features that seem to make the most sense about terrorist attacks. For the first section I have kept all the data as is, with the exception of filtering on longitude as I had one value that was erroneous. 
+In this section of the report I will focous on asking and answering questions about my data.
+
+### By region, what was the most popular weapon type?
+```{r, message=FALSE, cache=TRUE, echo=FALSE, warning=FALSE}
+EU <- data %>% select(region_txt, weaptype1_txt) %>% 
+    mutate(region = "Europe") %>% 
+    filter(weaptype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('Western Europe','Eastern Europe')) %>% 
+    add_count(weaptype1_txt) %>% 
+    select(region, weaptype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+Africa <- data %>% select(region_txt, weaptype1_txt) %>% 
+    mutate(region = "Africa") %>% 
+    filter(weaptype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('Sub-Saharan Africa','Middle East & North Africa')) %>% 
+    add_count(weaptype1_txt) %>% 
+    select(region, weaptype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+Asia <- data %>% select(region_txt, weaptype1_txt) %>% 
+    mutate(region = "Asia") %>% 
+    filter(weaptype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('East Asia','Southeast Asia', 'South Asia', 'Central Aisa')) %>% 
+    add_count(weaptype1_txt) %>% 
+    select(region, weaptype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+NAmerica <-data %>% select(region_txt, weaptype1_txt) %>% 
+    mutate(region = "NA") %>% 
+    filter(weaptype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('North America')) %>% 
+    add_count(weaptype1_txt) %>% 
+    select(region, weaptype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+SCAmerica <- data %>% select(region_txt, weaptype1_txt) %>% 
+    mutate(region = "SCA") %>% 
+    filter(weaptype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('South America','Central America & Caribbean')) %>% 
+    add_count(weaptype1_txt) %>% 
+    select(region, weaptype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+Australasia <- data %>% select(region_txt, weaptype1_txt) %>% 
+    mutate(region = "Australasia") %>% 
+    filter(weaptype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('Australasia & Oceania')) %>% 
+    add_count(weaptype1_txt) %>% 
+    select(region, weaptype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+topweapons <- rbind(EU,Africa, Asia, NAmerica, SCAmerica, Australasia)
+
+topweapons %>% ggplot(aes(x = region, y = rank, col = weaptype1_txt, group = weaptype1_txt)) +
+    geom_point() + geom_line() + labs(col="Weapon Type") + labs(title = "The Top Ranked Weapon by Region", subtitle = "Bombing/explosions are the most frequent attack types across all regions.\n\n", x = "") + scale_y_reverse()
+```
+
+
+### By region, what was the most popular attack type?
+```{r, cache=TRUE, message=FALSE, echo=FALSE, warning=FALSE}
+
+EU <- data %>% select(region_txt, attacktype1_txt) %>% 
+    mutate(region = "Europe") %>% 
+    filter(attacktype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('Western Europe','Eastern Europe')) %>% 
+    add_count(attacktype1_txt) %>% 
+    select(region, attacktype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+Africa <- data %>% select(region_txt, attacktype1_txt) %>% 
+    mutate(region = "Africa") %>% 
+    filter(attacktype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('Sub-Saharan Africa','Middle East & North Africa')) %>% 
+    add_count(attacktype1_txt) %>% 
+    select(region, attacktype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+Asia <- data %>% select(region_txt, attacktype1_txt) %>% 
+    mutate(region = "Asia") %>% 
+    filter(attacktype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('East Asia','Southeast Asia', 'South Asia', 'Central Aisa')) %>% 
+    add_count(attacktype1_txt) %>% 
+    select(region, attacktype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+NAmerica <-data %>% select(region_txt, attacktype1_txt) %>% 
+    mutate(region = "NA") %>% 
+    filter(attacktype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('North America')) %>% 
+    add_count(attacktype1_txt) %>% 
+    select(region, attacktype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+SCAmerica <- data %>% select(region_txt, attacktype1_txt) %>% 
+    mutate(region = "SCA") %>% 
+    filter(attacktype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('South America','Central America & Caribbean')) %>% 
+    add_count(attacktype1_txt) %>% 
+    select(region, attacktype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+Australasia <- data %>% select(region_txt, attacktype1_txt) %>% 
+    mutate(region = "Australasia") %>% 
+    filter(attacktype1_txt != 'Unknown') %>% 
+    filter(region_txt == c('Australasia & Oceania')) %>% 
+    add_count(attacktype1_txt) %>% 
+    select(region, attacktype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+topattacks <- rbind(EU,Africa, Asia, NAmerica, SCAmerica, Australasia)
+
+topattacks %>% ggplot(aes(x = region, y = rank, col = attacktype1_txt, group = attacktype1_txt)) +
+    geom_point() + geom_line() + labs(col="Attack Type") + labs(title = "The Top Ranked Attacks by Region.", subtitle = "Bombing/explosions are the most frequent attack types across all regions.", x = "") + scale_y_reverse()
+
+```
+
+### What countries had the most terrorist attacks?
+```{r, cache=TRUE, echo=FALSE}
+# top 10 countries for terrorist attacks to occur
+toptenC <- data %>% select(country_txt) %>% 
+    add_count(country_txt) %>% 
+    unique() %>% 
+    arrange(desc(n)) %>% 
+    top_n(n, n=10)
+toptenC %>% ggplot(aes(x = reorder(country_txt, n), y = n, fill = n)) + geom_bar(stat = "identity") + coord_flip() +
+    labs(title =("Iraq has the most terrorist attacks between 1970 and 2017"), x = "Country", y = "Number of Attacks") + 
+    theme(plot.title = element_text(size = 10, hjust = 0), axis.title =element_text(size = 10)) + scale_fill_distiller(palette = "Spectral") + geom_label(aes(label = n )) + ylim(0, 27000)
+```
+
+### What attack types were most common?
+```{r, cache=TRUE, echo=FALSE}
+# top 10 countries for terrorist attacks to occur
+toptena <- data %>% select(attacktype1_txt) %>% 
+    add_count(attacktype1_txt) %>% 
+    unique() %>% 
+    arrange(desc(n)) %>% 
+    top_n(n, n=10)
+toptena %>% ggplot(aes(x = reorder(attacktype1_txt, n), y = n, fill = n)) + geom_bar(stat = "identity") + coord_flip()  +
+    labs(title =("Bombings/Explosions are the most common attack type."), x = "Attack Type", y = "Number of Attacks") + 
+    theme(plot.title = element_text(size = 10, hjust = 0), axis.title =element_text(size = 10)) + scale_fill_distiller(palette = "Spectral") + geom_label(aes(label = n )) + ylim(0, 95000) + theme(legend.position = "none") 
+```
+
+### What weapons were used most often?
+```{r, cache=TRUE, echo=FALSE}
+# top 10 countries for terrorist attacks to occur
+# Top 10 Weapon Types
+toptenW <- data %>% select(weaptype1_txt) %>% 
+    add_count(weaptype1_txt) %>% 
+    unique() %>% 
+    arrange(desc(n)) %>% 
+    top_n(n, n=10)
+
+toptenW %>% ggplot(aes(x = reorder(weaptype1_txt, n), y = n, fill = n)) + geom_bar(stat = "identity") + coord_flip() +
+    labs(title =("Most attacks 1970-2017 were by explosive or firearms"), x = "Weapon Type", y = "Number of Attacks") + 
+    theme(plot.title = element_text(size = 10, hjust = 0), axis.title =element_text(size = 10)) + scale_fill_distiller(palette = "Spectral") + geom_label(aes(label = n )) + ylim(0, 95000)
+```
+
+### What were the most common weapon/country combinations?
+```{r, cache=TRUE, echo=FALSE}
+#Top 10 Combinations of Country and weapon 
+toptenCombo <- data %>% 
+    select(country_txt, weaptype1_txt) %>% 
+    add_count(country_txt,weaptype1_txt) %>%  
+    rename(Number_Attacks = n) %>% 
+    unique() %>% 
+    arrange(desc(Number_Attacks)) %>% 
+    top_n(Number_Attacks, n =10)
+
+toptenCombo %>% 
+    unite(Country_Weapon, country_txt, weaptype1_txt) %>% 
+    mutate(Country_Weapon = fct_reorder(Country_Weapon, Number_Attacks)) %>% 
+    ggplot(aes(x = Country_Weapon, y = Number_Attacks, fill = Number_Attacks)) +
+                   geom_bar(stat = "identity") +
+    coord_flip() +
+      labs(subtitle = "Top 10 countries by number of attacks in them.",
+       x= "",
+       y = "Number of Occurrences") + scale_fill_distiller(palette = "Spectral") + geom_label(aes(label = Number_Attacks )) + ylim(0, 25000) + theme(legend.position = "none")
+```
+
+### What were the most common attack type/country combinations?
+```{r, cache=TRUE, echo=FALSE}
+#Top 10 Combinations of Country and weapon 
+toptenCombo <- data %>% 
+    select(country_txt, attacktype1_txt) %>% 
+    add_count(country_txt,attacktype1_txt) %>%  
+    rename(Number_Attacks = n) %>% 
+    unique() %>% 
+    arrange(desc(Number_Attacks)) %>% 
+    top_n(Number_Attacks, n =10)
+#Top 10 Combinations of Country 
+toptenCombo %>% 
+    unite(Country_Attack, country_txt,attacktype1_txt) %>% 
+    mutate(Country_Attack = fct_reorder(Country_Attack, Number_Attacks)) %>% 
+    ggplot(aes(x = Country_Attack, y = Number_Attacks, fill = Number_Attacks)) +
+                   geom_bar(stat = "identity") +
+    coord_flip() +
+      labs(subtitle = "Top 10 country/attack combinations",
+       x= "",
+       y = "Number of Occurrences") + scale_fill_distiller(palette = "Spectral") + geom_label(aes(label = Number_Attacks )) + ylim(0, 21000) + theme(legend.position = "none")
+```
+
+### What regions had the highest percent of attacks be suicide attacks?
+```{r, cache=TRUE,echo=FALSE , warning=FALSE}
+data %>% select(suicide, region_txt) %>% group_by(region_txt) %>% 
+    mutate(suicidecount = sum(suicide)) %>%
+    add_count(region_txt, name = "Attacks") %>% 
+    select(-suicide) %>% 
+    group_by(region_txt) %>% 
+    mutate(percent = suicidecount/Attacks) %>% 
+    unique() %>% 
+    arrange(desc(percent))
+
+data %>% select(suicide, region_txt) %>% group_by(region_txt) %>% 
+    mutate(suicidecount = sum(suicide)) %>%
+    add_count(region_txt, name = "Attacks") %>% 
+    select(-suicide) %>% 
+    group_by(region_txt) %>% 
+    mutate(percent = suicidecount/Attacks) %>% 
+    unique() %>% 
+    arrange(desc(percent)) %>% ggplot(aes(x = reorder(region_txt, percent, FUN = max), y = percent, fill = percent)) + geom_bar(stat = "identity")+ coord_flip() +  labs(subtitle = "Suicide Attacks", x = "Region") + scale_fill_distiller(palette = "Spectral") + geom_label(aes(label = round(percent, digits = 2)))  + theme(legend.position = "none") + ylim(0,.09)
+```
+```{r, cache=TRUE, echo=FALSE, message=FALSE, warning=FALSE}
+mapping <- data %>% select(latitude,longitude, weaptype1_txt) %>% 
+    drop_na() %>% 
+    filter(longitude> -180)
+
+world <- getMap(resolution = "low")
+
+
+# ggplot() +
+#     geom_polygon(data = world, aes(x = long, y = lat, group = group),
+#                  fill = NA, colour = "black") +
+#     geom_density2d(data = mapping, aes(x = longitude, y = latitude, col = weaptype1_txt))
+
+par(mfrow=c(2,4))
+
+#North American Regional Map
+regionsNA <- data %>% select(country_txt, region_txt, latitude, longitude, weaptype1_txt) %>% filter (region_txt == 'North America') %>% filter(longitude <0)
+NARegion <- unique(regionsNA$country_txt)
+world_NA <- world[world@data$ADMIN %in% NARegion, ]
+
+NorthAmerica <- ggplot() +
+    geom_polygon(data = world_NA, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsNA, 
+               aes(x = longitude, y = latitude, col = factor(weaptype1_txt), 
+                   alpha = .02)) + 
+    theme_classic() +  # Remove ugly grey background
+labs(title = "North American Region Terrorist Attack Locations",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Suicide Attack")) +
+    scale_alpha(guide = 'none') 
+
+# Central America Map
+regionsCAC <- data %>% select(country_txt, region_txt, latitude, longitude, weaptype1_txt) %>% 
+    filter(region_txt == 'Central America & Caribbean') %>% filter(longitude>-125)
+world_CAC <- world[world@data$ADMIN %in% unique(regionsCAC$country_txt), ]
+
+CentralAmerica <- ggplot() +
+    geom_polygon(data = world_CAC, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsCAC, 
+               aes(x = longitude, y = latitude, col = factor(weaptype1_txt), 
+                   alpha = .02), show.legend = F) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "Central America Terrorist Attack Locations",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Suicide Attack")) +
+    scale_alpha(guide = 'none') 
+
+# Asia
+regionsAsia <- data %>% select(country_txt, region_txt, latitude, longitude, weaptype1_txt) %>% 
+    filter(region_txt %in% c('Southeast Asia', 'East Asia', 'Central Asia', 'South Asia')) %>% filter(longitude>0)
+world_Asia <- world[world@data$ADMIN %in% unique(regionsAsia$country_txt), ]
+
+Asia <- ggplot() +
+    geom_polygon(data = world_Asia, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsAsia, 
+               aes(x = longitude, y = latitude, col = factor(weaptype1_txt), 
+                   alpha = .02), show.legend = F) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "Asia Terrorist Attack Locations",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Suicide Attack")) +
+    scale_alpha(guide = 'none')
+
+
+# Middle East
+regionsME <- data %>% select(country_txt, region_txt, latitude, longitude, weaptype1_txt) %>% 
+    filter(region_txt == 'Middle East & North Africa') %>% filter(longitude < 70)
+world_ME <- world[world@data$ADMIN %in% unique(regionsME$country_txt), ]
+
+MiddleEast <- ggplot() +
+    geom_polygon(data = world_ME, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsME, 
+               aes(x = longitude, y = latitude, col = factor(weaptype1_txt), 
+                   alpha = .02), show.legend = F) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "Middle East Terrorist Attack Locations",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Suicide Attack")) +
+    scale_alpha(guide = 'none')
+
+# Europe
+regionsEU <- data %>% select(country_txt, region_txt, latitude, longitude, weaptype1_txt) %>% 
+    filter(region_txt %in% c('Eastern Europe', 'Western Europe'))
+world_EU <- world[world@data$ADMIN %in% unique(regionsEU$country_txt), ]
+
+Europe <- ggplot() +
+    geom_polygon(data = world_EU, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsEU, 
+               aes(x = longitude, y = latitude, col = factor(weaptype1_txt), 
+                   alpha = .02), show.legend = F) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "Europe Terrorist Attack Locations",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Suicide Attack")) +
+    scale_alpha(guide = 'none') +
+    xlim(-50, 160) +
+    ylim(20, 80)
+
+# Sub-Saharan Africa
+regionsSA <- data %>% select(country_txt, region_txt, latitude, longitude, weaptype1_txt) %>% 
+    filter(region_txt == 'Sub-Saharan Africa')
+world_SA <- world[world@data$ADMIN %in% unique(regionsSA$country_txt), ]
+
+SubSaharahAfrica <- ggplot() +
+    geom_polygon(data = world_SA, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsSA, 
+               aes(x = longitude, y = latitude, col = factor(weaptype1_txt), 
+                   alpha = .02), show.legend = F) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "Sub-Saharan Africa Terrorist Attack Locations",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Suicide Attack")) +
+    scale_alpha(guide = 'none') +
+    ylim(-38, 25)
+
+# South America
+regionsSAm <- data %>% select(country_txt, region_txt, latitude, longitude, weaptype1_txt) %>% 
+    filter(region_txt == 'South America')
+world_SAm <- world[world@data$ADMIN %in% unique(regionsSAm$country_txt), ]
+
+SouthAmerica <- ggplot() +
+    geom_polygon(data = world_SAm, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsSAm, 
+               aes(x = longitude, y = latitude, col = factor(weaptype1_txt), 
+                   alpha = .02), show.legend = F) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "South America Terrorist Attack Locations",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Suicide Attack")) +
+    scale_alpha(guide = 'none') 
+
+# Australia and Oceania
+regionsAus <- data %>% select(country_txt, region_txt, latitude, longitude, weaptype1_txt) %>% 
+    filter(region_txt == 'Australasia & Oceania')
+world_Aus <- world[world@data$ADMIN %in% unique(regionsAus$country_txt), ]
+
+Australia <- ggplot() +
+    geom_polygon(data = world_Aus, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsAus, 
+               aes(x = longitude, y = latitude, col = factor(weaptype1_txt), 
+                   alpha = .02)) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "Austrialia and Oceania Terrorist Attack Locations",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Suicide Attack")) +
+    scale_alpha(guide = 'none') +
+    xlim(110, 180)
+
+
+
+NorthAmerica
+SouthAmerica
+Europe
+SubSaharahAfrica
+MiddleEast
+Asia
+Australia
+
+```
+
+
+### Distributions of number of people killed by region, weapon type and attack type
+Filtered to not show number of attacks with 100+
+```{r, cache=TRUE, message=FALSE, echo=FALSE, warning=FALSE, warning=FALSE}
+# Top 10 Weapon Types
+toptenA <- data %>% select(attacktype1_txt) %>% 
+    add_count(attacktype1_txt) %>% 
+    unique() %>% 
+    arrange(desc(n)) %>% 
+    top_n(n, n=10)
+
+#Distributions of casualties by country
+
+data %>%
+    select(country_txt, weaptype1_txt, nkill) %>% 
+    group_by(country_txt) %>% 
+    filter(country_txt %in% toptenC$country_txt) %>% 
+    drop_na() %>% 
+    arrange(desc(nkill)) %>% 
+    mutate(nkill = as.numeric(nkill)) %>% 
+    ggplot(aes(x= reorder(country_txt, nkill, FUN = "mean"), y = nkill)) +
+    geom_boxplot(outlier.alpha = .5)+
+    ylim(-1, 100) + 
+    coord_flip() +
+     labs(title = "Top 10 countries by number of attacks in them",
+       subtitle = "Ordered by mean number of people killed",
+       x= "",
+       y = "Number of Casualties") + stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "red") + geom_hline(aes(yintercept = mean(nkill))) +
+    geom_text(aes(x = "Combined Total", y = 19, label = paste("Average = ",round(mean(nkill),digits = 3))), size =2.3)
+
+
+# Distributions by Weapon Type
+data %>%
+    select(country_txt, weaptype1_txt, nkill) %>% 
+    filter(weaptype1_txt %in% toptenW$weaptype1_txt) %>% 
+    drop_na() %>% 
+    arrange(desc(nkill)) %>% 
+    mutate(nkill = as.numeric(nkill)) %>% 
+    ggplot(aes(x= reorder(weaptype1_txt, nkill, FUN = "mean"), y = nkill)) +
+    geom_boxplot(outlier.alpha = .5)+
+    ylim(-1, 100) + 
+    coord_flip() +
+     labs(title = "Top 10 Weapons by number of times used.",
+       subtitle = "Ordered by mean number of people killed",
+       x= "",
+       y = "Number of Casualties") + stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "red") + geom_hline(aes(yintercept = mean(nkill))) +
+    geom_text(aes(x = "Combined Total", y = 19, label = paste("Average = ",round(mean(nkill),digits = 3))), size =2.3)
+
+# Distributions by Attack Type
+data %>%
+    select(country_txt, attacktype1_txt, nkill) %>% 
+    filter(attacktype1_txt %in% toptenA$attacktype1_txt) %>% 
+    drop_na() %>% 
+    arrange(desc(nkill)) %>% 
+    mutate(nkill = as.numeric(nkill)) %>% 
+    ggplot(aes(x= reorder(attacktype1_txt, nkill, FUN = "mean"), y = nkill)) +
+    geom_boxplot(outlier.alpha = .5)+
+    ylim(-1, 100) + 
+    coord_flip() +
+     labs(title = "Top 10 Attack Types by number of times used",
+       subtitle = "Ordered by mean number of people killed",
+       x= "",
+       y = "Number of Casualties") + stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "red") + geom_hline(aes(yintercept = mean(nkill))) +
+    geom_text(aes(x = "Combined Total", y = 19, label = paste("Average = ",round(mean(nkill),digits = 3))), size =2.3)
+```
+
+### Attacks over time killing over 100 people
+```{r, cache=TRUE, message=FALSE, echo=FALSE, warning=FALSE}
+p <- data %>% filter(nkill>100) %>% select(iyear, nkill) %>%  group_by(iyear) %>% add_count(iyear) %>% mutate(totalkilled = sum(nkill)) %>% arrange(desc(n)) %>% select(iyear, n) %>% unique() %>% 
+    ggplot( aes(x = iyear, y = n, fill = n)) + geom_bar(stat = "identity", color = "black") + scale_y_continuous(limits = c(0,30)) + labs(subtitle = "What year had the most extreme attacks?", x= "Year", y = "Extreme Attacks") +
+    geom_hline(yintercept = 5.36) +
+    geom_text(aes(x = 1990, y = 14, label = paste("Average # of Extreme attacks = ", round(mean(n), digits = 2))), size = 2.5) +
+    geom_text(aes(x = 2010, y = 30, label = "2014")) +
+    geom_text(aes(x =2010, y = 28, label = paste(max(n), " attacks")))
+p + scale_fill_distiller(palette = "RdYlGn")
+ 
+```
+
+### Attacks over time
+```{rcache=TRUE, message=FALSE, echo=FALSE, warning=FALSE}
+p <- data %>% select(iyear) %>% add_count(iyear) %>% unique() %>% arrange(desc(n)) %>% ggplot( aes(x = iyear, y = n, fill = n)) + geom_bar(stat = "identity", color = "black") + scale_y_continuous(limits = c(0,20000)) + labs(subtitle = "What year had the most attacks?", x= "Year", y = "Attacks") 
+p + scale_fill_distiller(palette = "RdYlGn") + geom_hline(yintercept = 3866) + geom_text(x = 1980, y = 5000, label = "Average = 3866")
+
+```
+
+### Number of people killed over time.
+```{r, cache=TRUE, message=FALSE, echo=FALSE, warning=FALSE}
+p <- data %>% filter(nkill>100) %>% select(iyear, nkill) %>%  group_by(iyear) %>% mutate(totalkilled = sum(nkill)) %>% arrange(desc(totalkilled)) %>% select(iyear, totalkilled) %>% unique() %>% 
+    ggplot( aes(x = iyear, y = totalkilled, fill = totalkilled)) + geom_bar(stat = "identity", color = "black") + scale_y_continuous(limits = c(0,9000)) + labs(subtitle = "People killed over time", x= "Year", y = "# Killed") +
+    geom_hline(yintercept = 1151) +
+    geom_text(aes(x = 2001, y = 3800, label = "9/11")) 
+p + scale_fill_distiller(palette = "RdYlGn")
+
+```
+
+### What regions, weapontypes, and attack types had the most "Extreme Attacks"?
+```{r , cache=TRUE, message=FALSE, echo=FALSE, warning=FALSE}
+# Region
+data %>% filter(nkill>100) %>% select(region_txt, nkill) %>%  group_by(region_txt   ) %>% add_count(region_txt) %>% mutate(totalkilled = sum(nkill)) %>% arrange(desc(n)) %>% select(region_txt, n) %>% unique() %>% 
+    ggplot(aes(x = reorder(region_txt,n, FUN = "max"), y = n, fill = n)) + geom_bar(stat = "identity", color = "black") + coord_flip() +
+    labs(title = "Region",subtitle = "Sub-Saharan Africa had the most extreme attacks", x = "", y = "Number of Attacks") + geom_label(aes(label = n), col = "White")+ scale_fill_distiller(palette = "Spectral") + theme(legend.position = "none") 
+
+# Weapontype
+data %>% filter(nkill>100) %>% select(weaptype1_txt, nkill) %>%  group_by(weaptype1_txt) %>% add_count(weaptype1_txt) %>% mutate(totalkilled = sum(nkill)) %>% arrange(desc(n)) %>% select(weaptype1_txt, n) %>% unique() %>% 
+    ggplot(aes(x = reorder(weaptype1_txt,n, FUN = "max"), y = n, fill = n)) + geom_bar(stat = "identity", color = "black") + coord_flip() +
+    labs(title = "Weapon Type",subtitle = "Explosives and Firearms have caused the most extreme attacks", x = "", y = "Number of Attacks") + geom_label(aes(label = n), col = "White")+ scale_fill_distiller(palette = "Spectral") + theme(legend.position = "none") 
+
+# Attacktype
+data %>% filter(nkill>100) %>% select(attacktype1_txt, nkill) %>%  group_by(attacktype1_txt) %>% add_count(attacktype1_txt) %>% mutate(totalkilled = sum(nkill)) %>% arrange(desc(n)) %>% select(attacktype1_txt, n) %>% unique() %>% 
+    ggplot(aes(x = reorder(attacktype1_txt,n, FUN = "max"), y = n, fill = n)) + geom_bar(stat = "identity", color = "black") + coord_flip() +
+    labs(title = "Attack Type",subtitle = "Armed Assault and bombings have caused the most extreme attacks", x = "", y = "Number of Attacks") + geom_label(aes(label = n), col = "White")+ scale_fill_distiller(palette = "Spectral") + theme(legend.position = "none") 
+```
+
+
+## Clustering
+
+I performed two types of clustering examples on this data. One was kmeans clustering and the other was hierarchical. Before I could do this on either of them, I imputed the missing data values. I used the imputation method in the MICE package which can perfrom separate models for imputation. I used the imputation method of "cart" which is classification and regression trees. I had found someone else who had performed a similar impuation using cart. Once I had an imputed dataset, I then used this imputed dataset to for my principal componenent analysis (PCA). I was still dealing with a dataset that did not need to have as many columns as it did. After I performed my PCA, I found that most of my variance was being explained by about 28-29 of my columns. Because of other data decisions, (filtering on <25% missing) I ended up only excluding a handful of columns with the PCA. I had to filter initially first though, because I was running into performance issues without the filtering step. 
+
+```{r, cache =TRUE, message= FALSE, echo=FALSE}
+partitioning <- sample.split(data, SplitRatio = .8)
+trainData <- subset(data, partitioning == TRUE)
+testData <- subset(data, partitioning == FALSE)
+
+# Selecting only numeric values
+numericTerrorism <- trainData %>%
+    select_if(is.numeric) %>% 
+    select(which(colMeans(is.na(.)) <.25))
+# # Imputing Strategies
+# TDMice <- md.pattern(numericTerrorism)
+# 
+# mice_plot <- aggr(numericTerrorism, col = c('navyblue', 'yellow'),
+#                   numbers = TRUE, sortVars = TRUE,
+#                   labels = names(numericTerrorism), cex.axis = .7,
+#                   gap = 3, ylab = c("Missing Data", "Pattern"))
+# 
+# # Mice plot of all the data
+# mice_plot <- aggr(data, col = c('navyblue', 'yellow'),
+#                   numers = TRUE, sortVars = TRUE,
+#                   labels = names(data), cex.axis = .7,
+#                   gap = 3, ylab = c("Missing Data", "Pattern"))
+# # Mice plot of the data that has less than 25% missing
+# lessthan25na <- data %>% select(which(colMeans(is.na(.)) < .25))
+# mice_plot <- aggr(lessthan25na, col = c('navyblue', 'yellow'),
+#                   sortVars = TRUE,
+#                   labels = names(lessthan25na), cex.axis = .7,
+#                   gap = 3, ylab = c("Missing Data", "Pattern"))
+
+# imputed_MICE <- mice(numericTerrorism, m = 3, maxit = 10, method = 'cart',
+                    # seed = 500)
+# Creating variables of the three imputed datasets created
+# imputed1_MICE <- complete(imputed_MICE,1)
+# imputed2_MICE <- complete(imputed_MICE,2)
+# imputed3_MICE <- complete(imputed_MICE,3)
+
+# Saving my imputed data as csv files in case I need them later
+# Imputation process was time intensive 
+# write.csv(imputed1_MICE, "C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Data/imputed1.csv")
+# write.csv(imputed2_MICE, "C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Data/imputed2.csv")
+# write.csv(imputed3_MICE, "C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Data/imputed3.csv")
+
+# Reading the data back in
+imputed1 <- read.csv("C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Data/Data/imputed1.csv")
+imputed2 <- read.csv("C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Data/Data/imputed2.csv")
+imputed3 <- read.csv("C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Data/Data/imputed3.csv")
+
+# Removing the event ID variable
+imputed1 <- imputed1 %>% select(-eventid, -X)
+# imputed2 <- imputed2 %>% select(-eventid, -X)
+# imputed3 <- imputed3 %>% select(-eventid, -X)
+
+# PCA
+pca1 <- prcomp(imputed1, scale = TRUE)
+# pca2 <- prcomp(imputed2, scale = TRUE)
+# pca3 <- prcomp(imputed3, scale = TRUE)
+
+
+# # Exploring the PCA Results
+# fviz_eig(pca1)
+# fviz_eig(pca2)
+# fviz_eig(pca3)
+# 
+# fviz_pca_ind(pca1,
+#              col.ind = "cos2", #color by quality of representation
+#              gradient.cols = c("#00AFBB", "#E7B800", "#FC4E07"),
+#              repel = TRUE)
+
+std_dev1 <- pca1$sdev
+# std_dev2 <- pca1$sdev
+# std_dev3 <- pca3$sdev
+# Variance of each principal component
+var1 <- std_dev1^2
+# var2 <- std_dev2^2
+# var3 <- std_dev3^2
+
+prop1_varex <- var1/sum(var1)
+# prop2_varex <- var2/sum(var2)
+# prop3_varex <- var3/sum(var3)
+
+#scree plot
+plot(prop1_varex, xlab = "Principal Component",
+       ylab = "Proportion of Variance Explained",
+       type = "b")
+#cumulative scree plot
+plot(cumsum(prop1_varex), xlab = "Principal Component",
+       ylab = "Cumulative Proportion of Variance Explained",
+       type = "b")
+
+#scree plot
+# plot(prop2_varex, xlab = "Principal Component",
+#        ylab = "Proportion of Variance Explained",
+#        type = "b")
+# #cumulative scree plot
+# plot(cumsum(prop2_varex), xlab = "Principal Component",
+#        ylab = "Cumulative Proportion of Variance Explained",
+#        type = "b")
+# 
+# #scree plot
+# plot(prop3_varex, xlab = "Principal Component",
+#        ylab = "Proportion of Variance Explained",
+#        type = "b")
+# #cumulative scree plot
+# plot(cumsum(prop3_varex), xlab = "Principal Component",
+#        ylab = "Cumulative Proportion of Variance Explained",
+#        type = "b")
+
+# Based on the Scree plot, we are interested in the first 28 columns
+imputed1 <- imputed1 %>% filter(longitude > -180)
+trainData <- imputed1[,1:28]
+testData <- numericTerrorism[,1:29]
+```
+
+After the imputation and PCA, I then ran the function, clusGap to determine the best number of clusters. I also did a visual check of this with the dendogram that was created by the hclust, and I determined that 8 clusters was the best option. 
+Below is my code for clustering my data and creating two new datasets, one for the kmeans clustered data and one for the hclust data.
+
+## Kmeans Clustering
+```{r, cache=TRUE, message=FALSE, warning=FALSE}
+sampleTrain <- trainData %>% sample_n(., 20000, replace = TRUE)
+sampleTrainNum <- trainData %>% sample_n(., 2000, replace = TRUE)
+scaledTrain <- scale(sampleTrain)
+scaledTrainNum <- scale(sampleTrainNum)
+km.out=kmeans(scaledTrain, 8, nstart = 20)
+
+
+head(km.out$cluster)
+# fviz_cluster(km.out, data = scaledTrain, geom = "point", pointsize = .5)
+
+# Kmeans groups in dataset
+kmeansData <- sampleTrain
+
+kmeansData$Cluster <- km.out$cluster
+
+# Creating a new grouped dataset (hclustData and kmeansData) for data analysis and training purposes
+write.csv(kmeansData, "C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Data/Data/kmeansData.csv")
+```
+
+## Hierarchical Clustering
+```{r, cache=TRUE, message=FALSE, warning=FALSE}
+trainData <- imputed1[,1:28]
+sampleTrain <- trainData %>% sample_n(., 20000, replace = TRUE)
+dist <- dist(sampleTrain, method = "euclidean")
+
+hcl <- hclust(dist, method = "complete")
+
+dnd <- as.dendrogram(hcl)
+plot(dnd, leaflab = 'none')
+
+dnd_cut <- cutree(hcl, 8)
+
+
+
+hclustData <- sampleTrain
+hclustData$Cluster <- dnd_cut
+hclustData %>% select(Cluster) %>% add_count(Cluster) %>% unique() %>% arrange(desc(n))
+
+# Creating a new grouped dataset (hclustData and kmeansData) for data analysis and training purposes
+# write.csv(hclustData, "C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Data/Data/hclustData.csv")
+```
+
+## Cluster Exploratory Data Analysis
+### Clusters visualized and means of each column grouped by cluster
+
+My goal with this section is to determine what separates each cluster from others.
+```{r, cache=FALSE, message=FALSE, error=FALSE, echo=FALSE}
+
+kmeansdt <- read.csv("C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Data/Data/kmeansData.csv")
+
+hclusterdt <- read.csv("C:/Users/Ryan Allen/Documents/Regis/Classes/Practicum_I/Data/Data/hclustData.csv")
+
+trainData <- imputed1[,1:28]
+sampleTrain <- trainData %>% sample_n(., 20000, replace = TRUE)
+scaledTrain <- scale(sampleTrain)
+km.out=kmeans(scaledTrain, 8, nstart = 20)
+# Clusters Visualized
+fviz_cluster(km.out, data = scaledTrain, geom = "point", pointsize = .5)
+
+aggregate(kmeansdt, by=list(kmeansdt$Cluster), mean)
+aggregate(hclusterdt, by=list(hclusterdt$Cluster), mean)
+
+```
+
+### Distribution of Regions in the Clusters
+```{r, cache=FALSE, message=FALSE, error=FALSE, echo=FALSE}
+kmeansRegions <- ggplot(kmeansdt, aes(x = Cluster, y = region, group = Cluster))+geom_boxplot() + geom_jitter(alpha = .1) + stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "red") + labs(subtitle = "Kmeans")
+
+hclustRegions <- ggplot(hclusterdt, aes(x = Cluster, y = region, group = Cluster))+geom_boxplot() + geom_jitter(alpha = .1) + stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "red") + labs(subtitle = "Hclust")
+
+kmeansRegions 
+hclustRegions
+```
+
+
+### Distribution of Weapon Types in the Clusters
+```{r, cache=FALSE, message=FALSE, error=FALSE, echo=FALSE}
+kmeansWeapon <- ggplot(kmeansdt, aes(x = Cluster, y = weaptype1, group = Cluster))+geom_boxplot() + geom_jitter(alpha = .1) + stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "red") + theme(plot.title = element_text(size=15)) + labs(title = "Kmeans Weapon types") + labs(subtitle = "Kmeans")
+
+hclustWeapon <- ggplot(hclusterdt, aes(x = Cluster, y = weaptype1, group = Cluster))+geom_boxplot() + geom_jitter(alpha = .1) + stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "red") + labs(subtitle = "Hclust")
+
+kmeansWeapon
+hclustWeapon
+```
+
+
+### Distribution of Attack Types in the Clusters
+```{r, cache=FALSE, message=FALSE, error=FALSE, echo=FALSE}
+kmeansAttack <- ggplot(kmeansdt, aes(x = Cluster, y = attacktype1, group = Cluster))+geom_boxplot() + geom_jitter(alpha = .1) + stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "red") + labs(subtitle = "Kmeans")
+
+hclustAttack <- ggplot(hclusterdt, aes(x = Cluster, y = attacktype1, group = Cluster))+geom_boxplot() + geom_jitter(alpha = .1) + stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "red") + labs(subtitle = "Hclust")
+
+kmeansAttack
+hclustAttack
+```
+
+### Distribution of Latitude and Longitude by Cluster
+```{r, cache=FALSE, message=FALSE, error=FALSE, echo=FALSE}
+kmeanslon <- ggplot(kmeansdt, aes(x = Cluster, y = longitude, group = Cluster))+geom_boxplot() + geom_jitter(alpha = .1) + stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "red") + labs(subtitle = "Kmeans Longitude")
+kmeanslat <- ggplot(kmeansdt, aes(x = Cluster, y = latitude, group = Cluster))+geom_boxplot() + geom_jitter(alpha = .1) + stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "red") + labs(subtitle = "Kmeans Latitude")
+hclustlat <- ggplot(hclusterdt, aes(x = Cluster, y = latitude, group = Cluster))+geom_boxplot() + geom_jitter(alpha = .1) + stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "red") + labs(subtitle = "Hclust Latitude")
+hclustlong <- ggplot(hclusterdt, aes(x = Cluster, y = longitude, group = Cluster))+geom_boxplot() + geom_jitter(alpha = .1) + stat_summary(fun.y = "mean", geom = "point", shape = 23, size = 3, fill = "red") + labs(subtitle = "Hclust Longitude")
+
+kmeanslat
+hclustlat
+kmeanslon
+hclustlong
+```
+
+```{r, echo=FALSE}
+wnames <- data %>% select (weaptype1, weaptype1_txt) %>% unique()
+anames <- data %>% select(attacktype1, attacktype1_txt) %>% unique()
+rnames <- data %>% select(region, region_txt) %>% unique()
+tname <- data %>% select(targtype1, targtype1_txt) %>% unique()
+cnames <- data %>% select(country, country_txt) %>% unique()
+
+kmeansdt <- dplyr::left_join(kmeansdt, wnames, by = "weaptype1")
+kmeansdt <- dplyr::left_join(kmeansdt, anames, by = "attacktype1")
+kmeansdt <- dplyr::left_join(kmeansdt, rnames, by = "region")
+kmeansdt <- dplyr::left_join(kmeansdt, tname, by = "targtype1")
+kmeansdt <- dplyr::left_join(kmeansdt, cnames, by = "country")
+
+```
+
+
+### Extreme Attacks by Cluster
+```{r , cache=TRUE, message=FALSE, echo=FALSE, warning=FALSE}
+# Region
+clusterextreme <- kmeansdt %>% filter(nkill>100) %>% select(Cluster, nkill) %>%  group_by(Cluster) %>% add_count(Cluster) %>% mutate(totalkilled = sum(nkill)) %>% arrange(desc(n)) %>% select(Cluster, n) %>% unique() 
+
+totalCluster <- kmeansdt %>% select(Cluster) %>% add_count(Cluster) %>% unique()
+clusterjoin <- dplyr::left_join(clusterextreme, totalCluster, by = "Cluster")
+clusterjoin %>% mutate(percent = n.x/n.y) %>% ggplot(aes(x = reorder(Cluster,percent, FUN = "max"), y = percent, fill = percent)) + geom_bar(stat = "identity", color = "black") + coord_flip() +
+    labs(title = "Cluster",subtitle = "Extreme attacks by # and %", x = "", y = "Percent of Attacks") + geom_label(aes(label = (n.x)), col = "Black")+ scale_fill_distiller(palette = "Spectral") + theme(legend.position = "none") 
+
+```
+
+### Distribution of Attack type by Cluster
+```{r, cache=TRUE, message=FALSE, echo=FALSE, warning=FALSE}
+kmeansdt %>% select(Cluster, attacktype1_txt) %>% group_by(Cluster) %>% add_count(Cluster, attacktype1_txt) %>% unique() %>% arrange(desc(Cluster)) %>% 
+    ggplot(aes(x = attacktype1_txt, y = n, fill = attacktype1_txt)) + geom_bar(stat = "identity") + facet_wrap( ~ Cluster, scales = "free_y", ncol = 2) + labs(subtitle = "Explosions are still high in most clusters", x = '', y = "") + theme(axis.text.x =  element_blank())+ labs(fill = "Attack Type")
+```
+
+
+### How do the distribution of deaths over time differ by cluster?
+```{r, cache=TRUE, message=FALSE, echo=FALSE, warning=FALSE}
+kmeansdt %>% select(Cluster,iyear, nkill) %>%  group_by(Cluster, iyear) %>% mutate(totalkilled = sum(nkill)) %>% arrange(desc(totalkilled)) %>% select(Cluster,iyear, totalkilled) %>% unique() %>% ggplot( aes(x = iyear, y = totalkilled, fill = totalkilled)) + geom_bar(stat = "identity", color = "black") + labs(subtitle = "The Clusters seem to group around different years", x= "Year", y = "Deaths") + facet_wrap(~ Cluster, scales = "free_y") + scale_fill_distiller(palette = "RdYlGn") + theme(axis.text.x = element_text(angle = 90))
+
+ggplot(kmeansdt, aes(x=iyear, fill = as.factor(Cluster))) + geom_density(alpha = .2) +
+    labs(subtitle = "Distributions by Year for each cluster", x = "Year", y = "Density") + labs(fill = "Cluster")
+    
+```
+
+### Mapping of Regions and Clusters
+```{r, cache=TRUE, message=FALSE, echo=FALSE, warning=FALSE}
+mapping <- kmeansdt %>% select(latitude,longitude, Cluster) %>% 
+    drop_na() %>% 
+    filter(longitude> -180)
+
+world <- getMap(resolution = "low")
+
+
+# ggplot() +
+#     geom_polygon(data = world, aes(x = long, y = lat, group = group),
+#                  fill = NA, colour = "black") +
+#     geom_density2d(data = mapping, aes(x = longitude, y = latitude, col = Cluster))
+
+par(mfrow=c(2,4))
+
+#North American Regional Map
+regionsNA <- kmeansdt %>% select(country_txt, region_txt, latitude, longitude, Cluster) %>% filter (region_txt == 'North America') %>% filter(longitude <0)
+NARegion <- unique(regionsNA$country_txt)
+world_NA <- world[world@data$ADMIN %in% NARegion, ]
+
+NorthAmerica <- ggplot() +
+    geom_polygon(data = world_NA, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsNA, 
+               aes(x = longitude, y = latitude, col = factor(Cluster), 
+                   alpha = .02)) + 
+    theme_classic() +  # Remove ugly grey background
+labs(title = "North American Region Terrorist Attack Locations",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Cluster")) +
+    scale_alpha(guide = 'none') 
+
+# Central America Map
+regionsCAC <- kmeansdt %>% select(country_txt, region_txt, latitude, longitude, Cluster) %>% 
+    filter(region_txt == 'Central America & Caribbean') %>% filter(longitude>-125)
+world_CAC <- world[world@data$ADMIN %in% unique(regionsCAC$country_txt), ]
+
+CentralAmerica <- ggplot() +
+    geom_polygon(data = world_CAC, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsCAC, 
+               aes(x = longitude, y = latitude, col = factor(Cluster), 
+                   alpha = .02), show.legend = F) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "Central America Terrorist Attack Locations",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Cluster")) +
+    scale_alpha(guide = 'none') 
+
+# Asia
+regionsAsia <- kmeansdt %>% select(country_txt, region_txt, latitude, longitude, Cluster) %>% 
+    filter(region_txt %in% c('Southeast Asia', 'East Asia', 'Central Asia', 'South Asia')) %>% filter(longitude>0)
+world_Asia <- world[world@data$ADMIN %in% unique(regionsAsia$country_txt), ]
+
+Asia <- ggplot() +
+    geom_polygon(data = world_Asia, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsAsia, 
+               aes(x = longitude, y = latitude, col = factor(Cluster), 
+                   alpha = .02), show.legend = F) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "Asia Terrorist Attack Locations",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Cluster")) +
+    scale_alpha(guide = 'none')
+
+
+# Middle East
+regionsME <- kmeansdt %>% select(country_txt, region_txt, latitude, longitude, Cluster) %>% 
+    filter(region_txt == 'Middle East & North Africa') %>% filter(longitude < 70)
+world_ME <- world[world@data$ADMIN %in% unique(regionsME$country_txt), ]
+
+MiddleEast <- ggplot() +
+    geom_polygon(data = world_ME, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsME, 
+               aes(x = longitude, y = latitude, col = factor(Cluster), 
+                   alpha = .02), show.legend = F) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "Middle East Terrorist Attack Locations",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Cluster")) +
+    scale_alpha(guide = 'none')
+
+# Europe
+regionsEU <- kmeansdt %>% select(country_txt, region_txt, latitude, longitude, Cluster) %>% 
+    filter(region_txt %in% c('Eastern Europe', 'Western Europe'))
+world_EU <- world[world@data$ADMIN %in% unique(regionsEU$country_txt), ]
+
+Europe <- ggplot() +
+    geom_polygon(data = world_EU, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsEU, 
+               aes(x = longitude, y = latitude, col = factor(Cluster), 
+                   alpha = .02), show.legend = F) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "Europe Terrorist Attack Locations",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Cluster")) +
+    scale_alpha(guide = 'none') +
+    xlim(-50, 160) +
+    ylim(20, 80)
+
+# Sub-Saharan Africa
+regionsSA <- kmeansdt %>% select(country_txt, region_txt, latitude, longitude, Cluster) %>% 
+    filter(region_txt == 'Sub-Saharan Africa')
+world_SA <- world[world@data$ADMIN %in% unique(regionsSA$country_txt), ]
+
+SubSaharahAfrica <- ggplot() +
+    geom_polygon(data = world_SA, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsSA, 
+               aes(x = longitude, y = latitude, col = factor(Cluster), 
+                   alpha = .02), show.legend = F) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "Sub-Saharan Africa Terrorist Attack Locations",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Cluster")) +
+    scale_alpha(guide = 'none') +
+    ylim(-38, 25)
+
+# South America
+regionsSAm <- kmeansdt %>% select(country_txt, region_txt, latitude, longitude, Cluster) %>% 
+    filter(region_txt == 'South America')
+world_SAm <- world[world@data$ADMIN %in% unique(regionsSAm$country_txt), ]
+
+SouthAmerica <- ggplot() +
+    geom_polygon(data = world_SAm, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsSAm, 
+               aes(x = longitude, y = latitude, col = factor(Cluster), 
+                   alpha = .02), show.legend = F) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "South America Terrorist Attack Locations",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Cluster")) +
+    scale_alpha(guide = 'none') +
+    xlim(-90, -30) +
+    ylim(-55,23)
+
+# Australia and Oceania
+regionsAus <- kmeansdt %>% select(country_txt, region_txt, latitude, longitude, Cluster) %>% 
+    filter(region_txt == 'Australasia & Oceania')
+world_Aus <- world[world@data$ADMIN %in% unique(regionsAus$country_txt), ]
+
+Australia <- ggplot() +
+    geom_polygon(data = world_Aus, aes(x = long, y = lat, group = group),
+                 fill = NA, colour = "black") +
+    geom_point(data = regionsAus, 
+               aes(x = longitude, y = latitude, col = factor(Cluster), 
+                   alpha = .2)) + 
+    theme_classic() +  # Remove ugly grey background
+	labs(title = "Austrialia and Oceania Terrorist Attack Locations",
+       x= "Longitude",
+       y = "Lattitude") +
+	guides(colour=guide_legend(title="Cluster")) +
+    scale_alpha(guide = 'none') +
+    xlim(110, 180)
+
+
+
+NorthAmerica
+SouthAmerica
+Europe
+SubSaharahAfrica
+MiddleEast
+Asia
+Australia
+
+```
+
+
+### What are the suicide rates for each cluster?
+```{r, cache=TRUE, message=FALSE, echo=FALSE, warning=FALSE}
+suicides <- kmeansdt %>% select(Cluster, suicide) %>% group_by(Cluster) %>% 
+    mutate(suicides = sum(suicide)) %>% select(Cluster, suicides) %>% unique()
+attacks <- kmeansdt %>% select(Cluster) %>% add_count(Cluster) %>% unique()
+
+suicidecounts <- left_join(suicides, attacks, by = "Cluster")
+suicidecounts %>% mutate(percent = (suicides/n)) %>% ggplot(aes(x = reorder(Cluster,suicides, FUN = "max"), y = suicides, fill = percent)) + geom_bar(stat = "identity") + geom_label(aes(label = suicides), col = "white")+ coord_flip() + labs(title = "Suicides by Cluster", x = "Cluster")
+
+```
+Even though Cluster 4 does not have the most it has a significantly higher percent of attacks than every other cluster.
+
+
+### Most Popular Weapon by Cluster
+```{r, cache=TRUE, message=FALSE, echo=FALSE}
+EU <- kmeansdt %>% select(Cluster, weaptype1_txt) %>% 
+    filter(Cluster == 1) %>% 
+    filter(weaptype1_txt != 'Unknown') %>%
+    add_count(weaptype1_txt) %>% 
+    select(Cluster, weaptype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+Africa <- kmeansdt %>% select(Cluster, weaptype1_txt) %>% 
+    filter(Cluster == 2) %>% 
+    filter(weaptype1_txt != 'Unknown') %>% 
+    add_count(weaptype1_txt) %>% 
+    select(Cluster, weaptype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+Asia <- kmeansdt %>% select(Cluster, weaptype1_txt) %>% 
+    filter(Cluster == 3) %>% 
+    filter(weaptype1_txt != 'Unknown') %>% 
+    add_count(weaptype1_txt) %>% 
+    select(Cluster, weaptype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+NAmerica <-kmeansdt %>% select(Cluster, weaptype1_txt) %>% 
+    filter(Cluster == 4) %>% 
+    filter(weaptype1_txt != 'Unknown') %>% 
+    add_count(weaptype1_txt) %>% 
+    select(Cluster, weaptype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+SCAmerica <- kmeansdt %>% select(Cluster, weaptype1_txt) %>% 
+    filter(Cluster == 5) %>% 
+    filter(weaptype1_txt != 'Unknown') %>% 
+    add_count(weaptype1_txt) %>% 
+    select(Cluster, weaptype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+Australasia <- kmeansdt %>% select(Cluster, weaptype1_txt) %>% 
+    filter(Cluster ==6) %>% 
+    filter(weaptype1_txt != 'Unknown') %>% 
+    add_count(weaptype1_txt) %>% 
+    select(Cluster, weaptype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+a7 <- kmeansdt %>% select(Cluster, weaptype1_txt) %>% 
+    filter(Cluster == 7 )%>% 
+    filter(weaptype1_txt != 'Unknown') %>% 
+    add_count(weaptype1_txt) %>% 
+    select(Cluster, weaptype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+a8 <- kmeansdt %>% select(Cluster, weaptype1_txt) %>% 
+    filter(Cluster == 8) %>% 
+    filter(weaptype1_txt != 'Unknown') %>% 
+    add_count(weaptype1_txt) %>% 
+    select(Cluster, weaptype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+
+topweapons <- rbind(EU,Africa, Asia, NAmerica, SCAmerica, Australasia, a7, a8)
+
+topweapons %>% ggplot(aes(x = Cluster, y = rank, col = weaptype1_txt, group = weaptype1_txt)) +
+    geom_point() + geom_line() + labs(col="Weapon Type") + labs(title = "The Top ranked weapon types for each Cluster.", subtitle = "Explosives are the most frequent weapon types across most Clusters.\n", x = "Cluster") + scale_y_reverse()
+```
+
+
+### Most Popular Attack type by Cluster.
+```{r, cache=TRUE, message=FALSE, echo=FALSE, warning=FALSE}
+EU <- kmeansdt %>% select(Cluster, attacktype1_txt) %>% 
+    filter(Cluster == 1) %>% 
+    filter(attacktype1_txt != 'Unknown') %>%
+    add_count(attacktype1_txt) %>% 
+    select(Cluster, attacktype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+Africa <- kmeansdt %>% select(Cluster, attacktype1_txt) %>% 
+    filter(Cluster == 2) %>% 
+    filter(attacktype1_txt != 'Unknown') %>% 
+    add_count(attacktype1_txt) %>% 
+    select(Cluster, attacktype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+Asia <- kmeansdt %>% select(Cluster, attacktype1_txt) %>% 
+    filter(Cluster == 3) %>% 
+    filter(attacktype1_txt != 'Unknown') %>% 
+    add_count(attacktype1_txt) %>% 
+    select(Cluster, attacktype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+NAmerica <-kmeansdt %>% select(Cluster, attacktype1_txt) %>% 
+    filter(Cluster == 4) %>% 
+    filter(attacktype1_txt != 'Unknown') %>% 
+    add_count(attacktype1_txt) %>% 
+    select(Cluster, attacktype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+SCAmerica <- kmeansdt %>% select(Cluster, attacktype1_txt) %>% 
+    filter(Cluster == 5) %>% 
+    filter(attacktype1_txt != 'Unknown') %>% 
+    add_count(attacktype1_txt) %>% 
+    select(Cluster, attacktype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+Australasia <- kmeansdt %>% select(Cluster, attacktype1_txt) %>% 
+    filter(Cluster ==6) %>% 
+    filter(attacktype1_txt != 'Unknown') %>% 
+    add_count(attacktype1_txt) %>% 
+    select(Cluster, attacktype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+a7 <- kmeansdt %>% select(Cluster, attacktype1_txt) %>% 
+    filter(Cluster == 7 )%>% 
+    filter(attacktype1_txt != 'Unknown') %>% 
+    add_count(attacktype1_txt) %>% 
+    select(Cluster, attacktype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+a8 <- kmeansdt %>% select(Cluster, attacktype1_txt) %>% 
+    filter(Cluster == 8) %>% 
+    filter(attacktype1_txt != 'Unknown') %>% 
+    add_count(attacktype1_txt) %>% 
+    select(Cluster, attacktype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+
+topweapons <- rbind(EU,Africa, Asia, NAmerica, SCAmerica, Australasia, a7, a8)
+
+topweapons %>% ggplot(aes(x = Cluster, y = rank, col = attacktype1_txt, group = attacktype1_txt)) +
+    geom_point() + geom_line() + labs(col="Attack Type") + labs(title = "The Top ranked attack types for each Cluster.", subtitle = "Bombing/explosions are the most frequent attack types across all Clusters.\n", x = "Cluster") + scale_y_reverse()
+
+```
+
+
+### What target types were most popular in each cluster?
+```{r, cache=TRUE, message=FALSE, echo=FALSE, warning=FALSE}
+kmeansdt %>% select(Cluster, targtype1_txt) %>% add_count(Cluster, targtype1_txt) %>% arrange(desc(n,Cluster)) %>% unique() %>% View()
+```
+
+
+
+```{r, cache=TRUE, message=FALSE, echo=FALSE, warning=FALSE}
+EU <- kmeansdt %>% select(Cluster, targtype1_txt) %>% 
+    filter(Cluster == 1) %>% 
+    filter(targtype1_txt != 'Unknown') %>%
+    add_count(targtype1_txt) %>% 
+    select(Cluster, targtype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+Africa <- kmeansdt %>% select(Cluster, targtype1_txt) %>% 
+    filter(Cluster == 2) %>% 
+    filter(targtype1_txt != 'Unknown') %>% 
+    add_count(targtype1_txt) %>% 
+    select(Cluster, targtype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+Asia <- kmeansdt %>% select(Cluster, targtype1_txt) %>% 
+    filter(Cluster == 3) %>% 
+    filter(targtype1_txt != 'Unknown') %>% 
+    add_count(targtype1_txt) %>% 
+    select(Cluster, targtype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+NAmerica <-kmeansdt %>% select(Cluster, targtype1_txt) %>% 
+    filter(Cluster == 4) %>% 
+    filter(targtype1_txt != 'Unknown') %>% 
+    add_count(targtype1_txt) %>% 
+    select(Cluster, targtype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+SCAmerica <- kmeansdt %>% select(Cluster, targtype1_txt) %>% 
+    filter(Cluster == 5) %>% 
+    filter(targtype1_txt != 'Unknown') %>% 
+    add_count(targtype1_txt) %>% 
+    select(Cluster, targtype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+Australasia <- kmeansdt %>% select(Cluster, targtype1_txt) %>% 
+    filter(Cluster ==6) %>% 
+    filter(targtype1_txt != 'Unknown') %>% 
+    add_count(targtype1_txt) %>% 
+    select(Cluster, targtype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+a7 <- kmeansdt %>% select(Cluster, targtype1_txt) %>% 
+    filter(Cluster == 7 )%>% 
+    filter(targtype1_txt != 'Unknown') %>% 
+    add_count(targtype1_txt) %>% 
+    select(Cluster, targtype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+a8 <- kmeansdt %>% select(Cluster, targtype1_txt) %>% 
+    filter(Cluster == 8) %>% 
+    filter(targtype1_txt != 'Unknown') %>% 
+    add_count(targtype1_txt) %>% 
+    select(Cluster, targtype1_txt, n) %>% 
+    arrange(desc(n)) %>% 
+    unique() %>% 
+    mutate(rank = 1:nrow(.))
+
+
+topweapons <- rbind(EU,Africa, Asia, NAmerica, SCAmerica, Australasia, a7, a8)
+topweapons <- topweapons %>% filter(rank <= 10)
+topweapons %>% ggplot(aes(x = Cluster, y = rank, col = targtype1_txt, group = targtype1_txt)) +
+    geom_point() + geom_line() + labs(col="Attack Type") + labs(title = "The Top ranked target types for each Cluster.", subtitle = "Private citizens is ranked 1 or 2 for all clusters", x = "Cluster") + scale_y_reverse()+ theme(legend.position = "none")
+
+topweapons
+```
+
+## Conclusions and Future Work
+
+As I have explored the relationships between the clusters I continued to look for ways to quanitfy the strength of my clustering I found a handful of statistics to look for. One was the gap statistic (this is determined to find the optimum number of clusters), NbClust(also used to find the optimum number of clusters), and silhouette width of each cluster. 
+
+When I did the gap statistic and the NbClust I actually got two different results. NbClust said that the best (majority vote) said that three clusters was the best and eight clusters was second. But the gap statistic suggested eight was best and at one point when I had run the NbClust, it suggested eight as well, but I had not set my seed, so I was not able to reproduce this. Because of all this, I chose to go with 8 clusters.
+
+My goal was to cluster the data and look for trends or defining charachteristics within the clusters to see what set each cluster apart. 
+
+I believe that I have successful completed my goal of clustering the data into meaningful and distinct clusters. The rand index pointed me to the fact that my clusters did not just fall along the lines of my regions, weapon types, or attack types. My silhouette coefficients pointed to the fact that my clusters and assigned points were in good agreement with each other. And I was able to visually find defining characteristics of each cluster. Below are some of the mentionable and noticeable cluster findings.
+
+### Findings
+
+* My rand index did not suggest that there was much of a similarity between my clusters and the regions, weapon type or attack type, which I was worried about. All of these values centered around 0
+* Cluster 7 has a distinct distribution right around regions 2 and 3, that is the Central and South American region.
+* Clusters 5 and 7 are heavy in the regions of 5, 6, 8, 10, and 11 (Southeast Asia, South Asia, Western Europe, Middle East and North Africa and Sub-Saharan Africa respectively)
+* Cluster three has a mean of region 6, South Asia. 
+* Cluster 8 has a distinct difference in weapon type, centered on weapon type of Unknown and a grouping around Melee.
+* Cluster 8 also has a distinct difference in attack type, more Unknown attacks, Hostages, and Infrastructure attacks.
+* Cluster 4 had ALL of the extreme attacks. It also represented more than 10% of its attacks. More than any regions percentage.
+* Cluster 7 has a mean around the equator, the rest of the clusters have northern hemisphere centers.
+* Cluster 7 also has a significant difference in longitude, which makes sense if it has mostly Central and South America (different longitudes than most other regions).
+* Cluster 8 has a different distribution than all the others for Attack Type
+* Clusters 1 and 3 are alike, whereas 2, 4, 5, 6, and 7 all have higher armed assault numbers and bombing/explosions, but skip over the higher assassinations     (comparatively).
+* Cluster 1 spikes on Unknown attack types and Cluster 3 spikes Hostage             (kidnapping).
+* Cluster 3 centers around attacks in 1990.
+* Cluster 7 clusters around attacks in 1980.
+* Clusters 2, 4, 5, 6 and 8 all have the normal attack pattern (normal compared to     the overall data's distribution).
+* Cluster 1 has had very few people killed compared to all the other clusters.
+* Clusters 1 and 4 have similar amount of attacks (139 and 177 respectively) but cluster 4 was way deadlier.
+* Even though Cluster 4 does not have the most it has a significantly higher percent of attacks than every other cluster.
+* The clusters had variability when it came to the rank of weapons, some of the clusters shared the top few, but after that there were significant mixes.
+* Attack ranks experience more stability, especially amongst the top two attack types. I know these plots are messy, but they highlight the variability of the clusters. We want the clusters to be different, that extends to the attack and weapon types and how they ranked in each cluster.
+
+### Future work and considerations
+One area of consideration for future work of this would be to investigate more on how many clusters are best. I had non-agreeing results with my NbClust and gap statistic. There could be further analysis in of the internal measures of the clusters to see how many clusters between 2-10 clusters would be best. Due to limited time and computing capacity I was not able to dedicate as much time to this section.
+Another area would be to investigate other ways of handling such large datasets. I sampled the data and only took 20,000 rows compared to the over 180,000 original. This again was due to the computing constraints of my machine. This leaves plenty of opportunity to research other ways of sampling the data, or methods for clustering with large datasets.
+
+Future work from here:
+
+* Assign data points to their clusters and use this as the prediction variable for future attacks. This could be used to help identify characteristics of future attacks and grouping them with known attacks.
+* There could be other analyses to look for defining features and characteristics of the clusters. I broke them down into years, extreme attacks, weapon type, attack type, regions, countries, etc.. But with so many features, the are many other analyses that could be performed. Creativity in this part would be helpful. Thinking outside the box is what lead to the discovery of extreme attacks, which ended up being a defining feature of one of the clusters. 
+* Combining the data with other time-based data for insights. I think it would be interesting to join terrorism data with stock market performance to look for similarities or patterns. This could be used to see if one affects the other or predicts the other. Do terrorist attacks predate stock markets swings or vice versa?
+* There was a description field that text analysis or natural language processing could have been used on. 
+* Combining text analysis with a deadly year by finding news articles and headlines either the year or month before and then after to see if there were trends in the sentiments of headlines. 
+* Web scraping Twitter to see if sentiments of tweets reflected the attacks or perhaps foretold of pending attacks. Since the data and tweet data both have geographic information you could use regional analysis to predict attacks based on text analysis insights.
+* One area could be to gather more information about the perpetrating groups and seeing if there are insights that would lead to being able to predict which group was responsible for an attack before credit has been taken. This could lead to faster responses and justice.
+
+
+
+The following helpful resources and what topics they contributed to in the my project:
+
+Principal component analysis: (Kassambara, 2017)
+Mapping in R: (Godlee, n.d.)
+Imputation strategies: (Mekala, 2018)
+Optimal Clustering: (Oldach, 2019)
+Clustering using gap statistic: (Boehmke, 2017)
+Ggplot and visualizations (R Graphics Cookbook): (Chang, 2013)
+Practical Statistics for Data Scientists: (Bruce & Bruce, 2017)
+
+### References
+Boehmke, B. (2017, March 03). K-Means Cluster Analysis. Retrieved from UC Business Analytics R Programming Guide: https://uc-r.github.io/kmeans_clustering
+Bruce, P., & Bruce, A. (2017). Practical Statistics for Data Scientists. Sebastopol, CA: O'Reilly Media, Inc.
+Chang, W. (2013). R Graphics Cookbook. Sebastopol, CA: O'Reilly Media, Inc.
+Godlee, J. (n.d.). Spatial Data and Maps. Retrieved from Coding Club: https://ourcodingclub.github.io/tutorials/maps/
+Kassambara, A. (2017, August 10). Principal Component Analysis in R: prcomp vs princomp. Retrieved from Statistcal tools for high-throughput data analysis: http://www.sthda.com/english/articles/31-principal-component-methods-in-r-practical-guide/118-principal-component-analysis-in-r-prcomp-vs-princomp/
+Mekala, H. (2018, June 29). Dealing with Missing Data using R. Retrieved from Medium: https://medium.com/coinmonks/dealing-with-missing-data-using-r-3ae428da2d17
+Oldach, M. (2019, Jan 27). 10 Tips for Choosing the Optimal Number of Clusters. Retrieved from towards data science: https://towardsdatascience.com/10-tips-for-choosing-the-optimal-number-of-clusters-277e93d72d92
+
